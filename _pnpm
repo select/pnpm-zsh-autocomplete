@@ -1,0 +1,202 @@
+#compdef pnpm
+local state line
+declare -A opt_args
+
+_pnpm_get_scripts () {
+  local package_json="package.json"
+
+  if [[ -f "$package_json" ]]; then
+    # Extract scripts from package.json preserving order and handling colons
+    # Look for the scripts section and extract script names
+    awk '
+      /"scripts"[[:space:]]*:[[:space:]]*{/ { in_scripts = 1; next }
+      in_scripts && /^[[:space:]]*}/ { in_scripts = 0; next }
+      in_scripts && /^[[:space:]]*"[^"]+":/ {
+        # Extract script name between quotes
+        gsub(/^[[:space:]]*"/, "")
+        gsub(/".*$/, "")
+        print $0
+      }
+    ' "$package_json"
+  fi
+}
+
+_pnpm_get_dependencies () {
+  local package_json="package.json"
+
+  if [[ -f "$package_json" ]]; then
+    # Extract dependencies and devDependencies, handling colons in package names
+    awk '
+      /"dependencies"[[:space:]]*:[[:space:]]*{/ { in_deps = 1; next }
+      /"devDependencies"[[:space:]]*:[[:space:]]*{/ { in_deps = 1; next }
+      in_deps && /^[[:space:]]*}/ { in_deps = 0; next }
+      in_deps && /^[[:space:]]*"[^"]+":/ {
+        # Extract package name between quotes
+        gsub(/^[[:space:]]*"/, "")
+        gsub(/".*$/, "")
+        print $0
+      }
+    ' "$package_json" | sort -u
+  fi
+}
+
+_pnpm () {
+  local context curcontext="$curcontext" state state_descr line
+  typeset -A opt_args
+
+  local -a pnpm_commands
+  pnpm_commands=(
+    'add:Add packages to dependencies'
+    'install:Install all dependencies'
+    'i:Install all dependencies'
+    'update:Update packages'
+    'up:Update packages'
+    'remove:Remove packages'
+    'rm:Remove packages'
+    'uninstall:Remove packages'
+    'run:Run a script defined in package.json'
+    'exec:Execute a command from node_modules'
+    'dlx:Execute a package binary'
+    # 'create:Create a project from a template'
+    'init:Initialize a new project'
+    # 'publish:Publish package to registry'
+    # 'pack:Create a tarball from a package'
+    # 'link:Link a package'
+    # 'unlink:Unlink a package'
+    'outdated:Check for outdated packages'
+    'audit:Run security audit'
+    'why:Show why a package is installed'
+    # 'licenses:Show licenses of dependencies'
+    # 'store:Manage the pnpm store'
+    'prune:Remove extraneous packages'
+    'rebuild:Rebuild packages'
+    'list:List installed packages'
+    'ls:List installed packages'
+    # 'cache:Manage the cache'
+  )
+
+  _arguments -C \
+    '(--help -h)'{--help,-h}'[Show help]' \
+    '(--version -v)'{--version,-v}'[Show version]' \
+    '--global[Install packages globally]' \
+    '--save-dev[Save to devDependencies]' \
+    '--save-prod[Save to dependencies]' \
+    '--save-optional[Save to optionalDependencies]' \
+    '--save-exact[Save exact version]' \
+    '--no-save[Do not save to package.json]' \
+    '*:: :->command_or_options' && return
+
+  case $state in
+    command_or_options)
+      if (( CURRENT == 1 )); then
+        # First argument - show scripts first, then commands
+        local -a all_completions scripts
+
+        # Add scripts from package.json first if available (preserving order)
+        if [[ -f "package.json" ]]; then
+          scripts=(${(f)"$(_pnpm_get_scripts)"})
+          for script in $scripts; do
+            # Escape colons in script name for zsh completion
+            local escaped_script="${script//:/\\:}"
+            all_completions+=("$escaped_script:Run npm script '$script'")
+          done
+        fi
+
+        # Then add pnpm commands
+        all_completions+=($pnpm_commands)
+
+        _describe -t commands 'pnpm scripts and commands' all_completions
+      else
+        # Handle subcommands
+        case ${words[1]} in
+          add)
+            _arguments \
+              '--save-dev[Save to devDependencies]' \
+              '--save-prod[Save to dependencies]' \
+              '--save-optional[Save to optionalDependencies]' \
+              '--save-exact[Save exact version]' \
+              '--global[Install globally]' \
+              '*:package name:'
+            ;;
+          remove|rm|uninstall|un)
+            # Complete with installed packages
+            local -a deps
+            deps=(${(f)"$(_pnpm_get_dependencies)"})
+            if (( ${#deps} > 0 )); then
+              _describe -t packages 'installed packages' deps
+            else
+              _message 'package name'
+            fi
+            ;;
+          run)
+            # Complete with available scripts (preserving order)
+            local -a scripts
+            scripts=(${(f)"$(_pnpm_get_scripts)"})
+            if (( ${#scripts} > 0 )); then
+              _describe -t scripts 'npm scripts' scripts
+            else
+              _message 'script name'
+            fi
+            ;;
+          exec)
+            _command_names -e
+            ;;
+          dlx)
+            _message 'package name'
+            ;;
+          why)
+            local -a deps
+            deps=(${(f)"$(_pnpm_get_dependencies)"})
+            if (( ${#deps} > 0 )); then
+              _describe -t packages 'installed packages' deps
+            else
+              _message 'package name'
+            fi
+            ;;
+          store)
+            local -a store_commands
+            store_commands=(
+              'status:Show store status'
+              'add:Add packages to store'
+              'prune:Remove unreferenced packages from store'
+              'path:Show store path'
+            )
+            _describe -t store-commands 'store commands' store_commands
+            ;;
+          cache|c)
+            local -a cache_commands
+            cache_commands=(
+              'dir:Show cache directory'
+              'clean:Clean cache'
+              'verify:Verify cache'
+            )
+            _describe -t cache-commands 'cache commands' cache_commands
+            ;;
+          update|up)
+            local -a deps
+            deps=(${(f)"$(_pnpm_get_dependencies)"})
+            if (( ${#deps} > 0 )); then
+              _describe -t packages 'installed packages' deps
+            else
+              _message 'package name'
+            fi
+            ;;
+          *)
+            # For script names that match package.json scripts, don't offer file completion
+            local -a scripts
+            scripts=(${(f)"$(_pnpm_get_scripts)"})
+            if [[ -n "${scripts[(r)${words[1]}]}" ]]; then
+              # This is a script, offer script arguments completion (files)
+              _files
+            else
+              # Default completion for other commands
+              _files
+            fi
+            ;;
+        esac
+      fi
+      ;;
+  esac
+}
+
+compdef _pnpm pnpm
