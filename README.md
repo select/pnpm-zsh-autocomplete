@@ -41,7 +41,7 @@ source ~/.zshrc
 echo $FPATH
 
 # Copy to the first directory in FPATH (usually ~/.oh-my-zsh/completions)
-cp _pnpm_simple ~/.oh-my-zsh/completions/_pnpm
+cp _pnpm ~/.oh-my-zsh/completions/_pnpm
 ```
 
 2. Reload completions:
